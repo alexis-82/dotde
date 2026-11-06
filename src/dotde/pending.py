@@ -27,6 +27,7 @@ from dotde.restore import (
     begin_backup,
     finish_backup,
     prepare_content,
+    restore_symlink,
 )
 
 SCRIPT_NAME = "dotde-pending.sh"
@@ -130,12 +131,16 @@ def stage_undo(backup: Backup, home: Path) -> None:
         delete = list(backup.data.get("created_files", []))
         for rel in delete:
             check_rel(rel)
+        symlinks = list(backup.data.get("symlinks", []))
+        for link in symlinks:
+            check_rel(link["rel"])
         info = {
             "created": datetime.now().astimezone().isoformat(timespec="seconds"),
             "source": str(backup.dir),
             "de": backup.data.get("de", ""),
             "items": items,
             "delete": delete,
+            "symlinks": symlinks,
             "undo_of": str(backup.dir),
         }
         atomic_write(tmp / "pending.json", json.dumps(info, indent=2).encode())
@@ -176,13 +181,18 @@ def apply_pending(home: Path) -> int:
                 raise PathError(f"unexpected member for {raw['rel']}")
             items.append(PlanItem(raw["rel"], raw["member"], raw["category"], int(raw["mode"]) & 0o777))
         delete = list(info.get("delete", []))
-        for rel in delete:
+        symlinks = list(info.get("symlinks", []))
+        for rel in delete + [link["rel"] for link in symlinks]:
             check_rel(rel)
-        backup = begin_backup(home, [i.rel for i in items] + delete, [], info.get("source", ""), info.get("de", ""))
+        kind = "undo" if info.get("undo_of") else "import"
+        rels = [i.rel for i in items] + delete + [link["rel"] for link in symlinks]
+        backup = begin_backup(home, rels, [], info.get("source", ""), info.get("de", ""), kind)
         apply_items(home, pending_dir(home), items, None)
         for rel in delete:
             resolve_inside(home, rel).unlink(missing_ok=True)
             remove_empty_parents(home, rel)
+        for link in symlinks:
+            restore_symlink(home, link["rel"], link["target"])
         finish_backup(backup, home)
         if info.get("undo_of"):
             _mark_undone(Path(info["undo_of"]))

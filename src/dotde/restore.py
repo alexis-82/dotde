@@ -25,6 +25,7 @@ from dotde.packages import (
     install_commands,
     local_flatpak_remotes,
     parse_archive,
+    split_available,
 )
 from dotde.paths import (
     PathError,
@@ -41,6 +42,7 @@ from dotde.paths import (
     state_dir,
 )
 from dotde.profiles import Category, Profile, ProfileError, de_version, load_profile
+from dotde.session import running_de
 
 KEEP_BACKUPS = 3
 Progress = Callable[[int, int], None]
@@ -74,8 +76,11 @@ def compatibility(manifest: dict, env: Environment, profile: Profile | None, hom
                   local_version: str | None = None) -> list[Notice]:
     notices = []
     a_de = manifest.get("de", {})
-    if env.de != "unknown" and a_de.get("id") != env.de:
-        notices.append(Notice("warn.de_differs", {"archive": a_de.get("name", a_de.get("id")), "current": env.de}))
+    current = env.de if env.de != "unknown" else running_de()  # from a TTY: look at the processes
+    if current and a_de.get("id") != current:
+        notices.append(Notice("warn.de_differs", {"archive": a_de.get("name", a_de.get("id")), "current": current}))
+    elif not current and profile is not None and profile.version_cmd and not shutil.which(profile.version_cmd[0]):
+        notices.append(Notice("warn.de_not_installed", {"archive": profile.name}))
     if profile is not None:
         local = de_version(profile) if local_version is None else local_version
         if local and a_de.get("version") and _major(local) != _major(a_de["version"]):
@@ -154,6 +159,9 @@ def build_plan(opened: OpenedArchive, profile: Profile | None, common: Profile, 
         except PathError:
             plan.ignored.append((rel, "symlink"))
             continue
+        if _type_conflict(home, rel):
+            plan.ignored.append((rel, "conflict"))
+            continue
         plan.items.append(PlanItem(rel, f"files/{rel}", cat_id, int(f.get("mode", 0o644)) & 0o777))
         if is_under(rel, ".config/autostart/") and rel.endswith(".desktop"):
             plan.autostart.append(rel)
@@ -169,6 +177,19 @@ def build_plan(opened: OpenedArchive, profile: Profile | None, common: Profile, 
         elif d["category"] in selected:
             plan.ignored.append((d["path"], "outside_category"))
     return plan
+
+
+def _type_conflict(home: Path, rel: str) -> bool:
+    """A file of the archive where a folder exists here, or below something that is a file here."""
+    target = home / rel
+    if target.is_dir() and not target.is_symlink():
+        return True
+    parent = target.parent
+    while parent != home:
+        if parent.exists() and not parent.is_dir():
+            return True
+        parent = parent.parent
+    return False
 
 
 def _refuse(rel: str, cat_id: str, local_cats: dict[str, Category], covered: list[str], excludes: list[str]) -> str:
@@ -224,17 +245,26 @@ def _new_backup_dir(root: Path) -> Path:
     return path
 
 
-def begin_backup(home: Path, rels: list[str], dconf_paths: list[str], source: str, de: str) -> Backup:
-    """Write the journal *before* touching anything, then copy the files that will be replaced."""
+def begin_backup(home: Path, rels: list[str], dconf_paths: list[str], source: str, de: str,
+                 kind: str = "import") -> Backup:
+    """Write the journal *before* touching anything, then copy the files that will be replaced.
+
+    `kind` is "import", or "undo" when the backup protects the application of an undo: those are
+    never offered by "Undo last import" (undoing them would redo the import).
+    """
     bdir = _new_backup_dir(backups_root(home))
-    existing = [r for r in rels if (home / r).is_file() and not (home / r).is_symlink()]
-    created = [r for r in rels if r not in set(existing)]
+    symlinks = [{"rel": r, "target": os.readlink(home / r)} for r in rels if (home / r).is_symlink()]
+    linked = {s["rel"] for s in symlinks}
+    existing = [r for r in rels if r not in linked and (home / r).is_file()]
+    created = [r for r in rels if r not in linked and r not in set(existing)]
     backup = Backup(bdir, {
         "status": "in_progress",
+        "kind": kind,
         "created": datetime.now().astimezone().isoformat(timespec="seconds"),
         "source": source,
         "de": de,
         "overwritten": existing,
+        "symlinks": symlinks,  # replaced by a regular file: recreated as links on undo
         "created_files": created,
         "dconf": [],
     })
@@ -244,8 +274,12 @@ def begin_backup(home: Path, rels: list[str], dconf_paths: list[str], source: st
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(home / rel, dest)
     for i, path in enumerate(dconf_paths, 1):
+        try:
+            dump = dconf.dump(path)
+        except dconf.DconfError:
+            continue  # not backed up -> not loaded either (see restore_immediate)
         name = f"dconf/{i}.ini"
-        atomic_write(bdir / name, dconf.dump(path).encode())
+        atomic_write(bdir / name, dump.encode())
         backup.data["dconf"].append({"path": path, "file": name})
     backup.save()
     return backup
@@ -312,10 +346,12 @@ def apply_items(home: Path, source_dir: Path, items: list[PlanItem], rewrite: tu
 # --- Task 25: dconf ------------------------------------------------------------------------------
 
 
-def apply_dconf(opened: OpenedArchive, plan: RestorePlan) -> list[tuple[str, str]]:
-    """Load the dconf dumps; returns (path, error) for the ones that failed."""
+def apply_dconf(opened: OpenedArchive, plan: RestorePlan, only: set[str]) -> list[tuple[str, str]]:
+    """Load the dconf dumps whose path is in `only`; returns (path, error) for the failures."""
     failed = []
     for _cat, path, member in plan.dconf:
+        if path not in only:
+            continue
         text = prepare_content(opened.file_bytes(member), plan.rewrite).decode("utf-8")
         try:
             dconf.load(path, text)
@@ -326,9 +362,14 @@ def apply_dconf(opened: OpenedArchive, plan: RestorePlan) -> list[tuple[str, str
 
 def restore_immediate(opened: OpenedArchive, plan: RestorePlan, home: Path, de: str,
                       progress: Progress | None = None) -> tuple[Backup, list[tuple[str, str]]]:
-    backup = begin_backup(home, [i.rel for i in plan.items], [p for _c, p, _m in plan.dconf], str(opened.path), de)
+    # dconf unreachable (e.g. TTY without session bus): files are restored anyway, dconf skipped,
+    # as the summary told the user. A section is loaded only if its current state was backed up.
+    dconf_paths = [p for _c, p, _m in plan.dconf] if plan.dconf and dconf.can_load() else []
+    backup = begin_backup(home, [i.rel for i in plan.items], dconf_paths, str(opened.path), de)
     apply_items(home, opened.workdir, plan.items, plan.rewrite, progress)
-    failed = apply_dconf(opened, plan) if plan.dconf else []
+    backed_up = {d["path"] for d in backup.data["dconf"]}
+    failed = apply_dconf(opened, plan, backed_up) if backed_up else []
+    failed += [(p, "backup failed") for p in dconf_paths if p not in backed_up]
     finish_backup(backup, home)
     return backup, failed
 
@@ -342,6 +383,7 @@ class PackageAction:
     packages: PackageList
     commands: list[list[str]]
     reason: str = ""  # i18n key explaining why there are no commands
+    missing: list[str] = field(default_factory=list)  # not available in the repositories any more
 
 
 def package_actions(opened: OpenedArchive, env: Environment) -> list[PackageAction]:
@@ -361,8 +403,13 @@ def package_actions(opened: OpenedArchive, env: Environment) -> list[PackageActi
             reason = "pkg.reason_no_aur_helper"
         elif key in ("flatpak", "snap") and not shutil.which(key):
             reason = "pkg.reason_missing_tool"
-        cmds = [] if reason else install_commands(pl, local_flatpak_remotes() if key == "flatpak" else None)
-        actions.append(PackageAction(key, pl, cmds, reason))
+        missing: list[str] = []
+        if not reason and key == "native":
+            pl_ok, missing = split_available(pl)
+        else:
+            pl_ok = pl
+        cmds = [] if reason else install_commands(pl_ok, local_flatpak_remotes() if key == "flatpak" else None)
+        actions.append(PackageAction(key, pl, cmds, reason, missing))
     return actions
 
 
@@ -387,7 +434,9 @@ def latest_backup(home: Path) -> Backup | None:
             data = json.loads((bdir / "backup.json").read_text("utf-8"))
         except (OSError, ValueError):
             continue
-        if data.get("status") in ("complete", "in_progress"):
+        if data.get("kind", "import") == "undo":
+            continue
+        if data.get("status") in ("complete", "in_progress", "partial"):
             return Backup(bdir, data)
     return None
 
@@ -403,6 +452,11 @@ def undo_backup(backup: Backup, home: Path) -> list[str]:
                 atomic_write(resolve_inside(home, rel), src.read_bytes(), src.stat().st_mode & 0o777)
             except (OSError, PathError) as exc:
                 failed.append(f"{rel}: {exc}")
+        for link in backup.data.get("symlinks", []):
+            try:
+                restore_symlink(home, link["rel"], link["target"])
+            except (OSError, PathError, KeyError) as exc:
+                failed.append(f"{link.get('rel', '?')}: {exc}")
         for rel in backup.data.get("created_files", []):
             try:
                 check_rel(rel)
@@ -416,6 +470,18 @@ def undo_backup(backup: Backup, home: Path) -> list[str]:
                 dconf.load(d["path"], (backup.dir / d["file"]).read_text("utf-8"))
             except (OSError, dconf.DconfError) as exc:
                 failed.append(f"{d['path']}: {exc}")
-    backup.data["status"] = "undone"
+    # "partial": something could not be put back, the undo can be tried again from the menu
+    backup.data["status"] = "partial" if failed else "undone"
     backup.save()
     return failed
+
+
+def restore_symlink(home: Path, rel: str, target: str) -> None:
+    """Put back a symbolic link that an import had replaced with a regular file."""
+    check_rel(rel)
+    path = home / rel
+    resolve_inside(home, str(Path(rel).parent) + "/x")  # the folder holding the link stays inside its root
+    if path.is_symlink() or path.exists():
+        path.unlink()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.symlink(target, path)

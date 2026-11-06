@@ -210,6 +210,9 @@ def _validate_manifest(manifest: dict) -> None:
                       ("dconf", list), ("packages", dict), ("home", str), ("user", str)):
         if not isinstance(manifest.get(key), kind):
             raise ArchiveError(f"manifest field '{key}' missing or invalid")
+    if not valid_home(manifest["home"]):
+        # It drives the path rewriting: "/usr" would turn every /usr path into the new home
+        raise ArchiveError(f"invalid home folder in manifest: {manifest['home']!r}")
     for cat in manifest["categories"]:
         cid = cat.get("id", "") if isinstance(cat, dict) else ""
         if not isinstance(cid, str) or not cid:
@@ -233,6 +236,15 @@ def _validate_manifest(manifest: dict) -> None:
             check_rel(f["path"])
         except PathError as exc:
             raise ArchiveError(str(exc)) from None
+
+
+def valid_home(path: str) -> bool:
+    """An absolute folder with at least two components (/home/x, /var/home/x), no '.' or '..'."""
+    parts = PurePosixPath(path).parts
+    return (
+        path.startswith("/") and "\x00" not in path and len(parts) >= 3
+        and not any(p in (".", "..") for p in parts)
+    )
 
 
 def free_space(path: Path) -> int:

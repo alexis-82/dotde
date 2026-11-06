@@ -272,14 +272,12 @@ def install_commands(pl: PackageList, existing_remotes: set[tuple[str, str]] | N
         # validation forbids a leading "-", as for apt-get.
         return [["sudo", "zypper", "install", *names]] if names else []
     if pl.source == "snap":
-        cmds = []
-        normal = [p.name for p in pl.packages if not p.classic and valid_name("snap", p.name)]
-        if normal:
-            cmds.append(["sudo", "snap", "install", "--", *normal])
-        for p in pl.packages:  # snap accepts --classic for a single snap only
-            if p.classic and valid_name("snap", p.name):
-                cmds.append(["sudo", "snap", "install", "--classic", "--", p.name])
-        return cmds
+        # One command per snap: a missing snap must not stop the others (and --classic
+        # accepts a single snap anyway).
+        return [
+            ["sudo", "snap", "install", *(["--classic"] if p.classic else []), "--", p.name]
+            for p in pl.packages if valid_name("snap", p.name)
+        ]
     if pl.source == "flatpak":
         existing = existing_remotes or set()
         cmds = []
@@ -288,14 +286,67 @@ def install_commands(pl: PackageList, existing_remotes: set[tuple[str, str]] | N
             if (r.installation, r.name) in needed and (r.installation, r.name) not in existing:
                 if valid_remote(r.name) and valid_url(r.url) and r.installation in INSTALLATIONS:
                     cmds.append(["flatpak", "remote-add", "--if-not-exists", f"--{r.installation}", "--", r.name, r.url])
-        groups: dict[tuple[str, str], list[str]] = {}
-        for p in pl.packages:
+        # One command per app: an app removed from its remote must not stop the others.
+        for p in sorted(pl.packages, key=lambda p: (p.installation, p.remote, p.name)):
             if valid_name("flatpak", p.name) and valid_remote(p.remote) and p.installation in INSTALLATIONS:
-                groups.setdefault((p.installation, p.remote), []).append(p.name)
-        for (inst, remote), ids in sorted(groups.items()):
-            cmds.append(["flatpak", "install", f"--{inst}", "--noninteractive", "--", remote, *ids])
+                cmds.append(["flatpak", "install", f"--{p.installation}", "--noninteractive", "--", p.remote, p.name])
         return cmds
     raise ValueError(f"unknown package source: {pl.source}")
+
+
+# --- availability (a single missing package makes pacman/apt/dnf/zypper refuse everything) -----------
+
+
+def _ok(cmd: list[str], timeout: float = 60) -> bool:
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=timeout, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def parse_zypper_all(text: str) -> set[str]:
+    """`zypper search --type package` (no term): every package of the configured repositories."""
+    names = set()
+    for line in text.splitlines():
+        cols = [c.strip() for c in line.split("|")]
+        if len(cols) >= 2 and cols[1] and cols[1] != "Name":
+            names.add(cols[1])
+    return names
+
+
+def available_names(source: str) -> set[str] | None:
+    """Names installable from the repositories here, or None when it cannot be determined."""
+    if source == "pacman":
+        names = set(parse_lines(_run(["pacman", "-Slq"])))
+    elif source == "apt":
+        names = {n.split(":")[0] for n in parse_lines(_run(["apt-cache", "pkgnames"]))}
+    elif source == "dnf":
+        names = set(parse_dnf(_run(["dnf", "repoquery", "--available", "--queryformat", "%{name}\\n"])))
+        names |= set(parse_lines(_run(["rpm", "-qa", "--queryformat", "%{NAME}\\n"])))
+    elif source == "zypper":
+        names = parse_zypper_all(_run(["zypper", "--quiet", "--non-interactive", "search", "--type", "package"]))
+    else:
+        return None
+    return names or None  # an empty answer means the query failed: do not filter
+
+
+def split_available(pl: PackageList) -> tuple[PackageList, list[str]]:
+    """(installable packages, names not available any more). Unchanged if it cannot be checked."""
+    available = available_names(pl.source)
+    if available is None:
+        return pl, []
+    keep, missing = [], []
+    for p in pl.packages:
+        if p.name in available or (pl.source == "pacman" and _provided(p.name)):
+            keep.append(p)
+        else:
+            missing.append(p.name)
+    return PackageList(pl.source, keep, pl.remotes, pl.invalid), missing
+
+
+def _provided(name: str) -> bool:
+    """pacman: a renamed package may still be installable through another package's provides."""
+    return valid_name("pacman", name) and _ok(["pacman", "-Sp", "--print-format", "%n", "--", name])
 
 
 def local_flatpak_remotes() -> set[tuple[str, str]]:

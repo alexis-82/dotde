@@ -127,3 +127,14 @@ def test_arrows_stop_at_the_ends():
     assert ic.pointed_at == 4  # bottom: stays
     ic.select_previous()
     assert ic.pointed_at == 1
+
+
+def test_ctrl_c_during_an_operation_returns_to_menu(home, monkeypatch, out):
+    def busy(env):
+        raise KeyboardInterrupt  # e.g. Ctrl+C while files are collected
+
+    monkeypatch.setattr(ui, "flow_export", busy)
+    monkeypatch.setattr(ui, "ask", Script("export", ui.Cancelled))  # export, then leave the menu
+    monkeypatch.setattr(ui, "detect_environment", lambda: Environment(Distro(), "unknown", "", "tty"))
+    assert ui.run() == 0
+    assert any("Cancelled" in line or "Annullato" in line for line in out)

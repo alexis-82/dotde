@@ -250,7 +250,10 @@ def run() -> int:
         console.print()
         try:
             flows[choice](env)
-        except Cancelled:
+        except (Cancelled, KeyboardInterrupt):
+            # Ctrl+C while DotDE is working (not inside a question): files are consistent
+            # (atomic writes, backup journal), so it is just a cancellation.
+            console.print()
             info(t("ui.cancelled"))
         except Exception as exc:  # noqa: BLE001 - never show a traceback to the user
             error(t("err.unexpected", error=f"{type(exc).__name__}: {exc}"))
@@ -428,6 +431,10 @@ def handle_packages(opened, env: Environment) -> None:
         if act.reason:
             warn(t(act.reason))
             continue
+        if act.missing:
+            warn(t("import.missing_packages", n=len(act.missing), names=" ".join(act.missing)))
+        if not act.commands:
+            continue
         for cmd in act.commands:
             shown = " ".join(cmd[:8]) + (" …" if len(cmd) > 8 else "")
             console.print(f"   [dim]$ {escape(shown)}[/]")
@@ -491,7 +498,8 @@ def _import_opened(opened, env: Environment, h: Path) -> None:
     notices += restore.compatibility(manifest, env, profile, h)
     for n in notices:
         notice(n)
-    if any(n.key == "warn.de_differs" for n in notices) and not confirm(t("import.confirm_de_differs"), default=False):
+    if any(n.key in ("warn.de_differs", "warn.de_not_installed") for n in notices) \
+            and not confirm(t("import.confirm_de_differs"), default=False):
         raise Cancelled
 
     common = load_common()

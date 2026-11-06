@@ -168,3 +168,17 @@ def test_not_an_archive(tmp_path, home):
     f.write_bytes(b"hello")
     with pytest.raises(ArchiveError):
         read_archive(f, home / "w")
+
+
+@pytest.mark.parametrize("bad_home", ["/usr", "/", "rel/x", "/home/../etc", "/etc"])
+def test_bad_home_in_manifest(archive, tmp_path, home, bad_home):
+    def edit(man):
+        man["home"] = bad_home
+    with pytest.raises(ArchiveError, match="home"):
+        read_archive(rebuild(archive, tmp_path / "b.tar.gz", edit_manifest=edit), home / "w")
+
+
+@pytest.mark.parametrize("good_home", ["/home/mario", "/var/home/mario", "/home/d'angelo rossi"])
+def test_good_home(good_home):
+    from dotde.archive import valid_home
+    assert valid_home(good_home)

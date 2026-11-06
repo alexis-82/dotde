@@ -111,5 +111,8 @@
  "ui.subtitle": "Back up and restore your desktop configuration",
  "ui.press_key": "Press any key to go back to the menu…",
  "menu.update": "Update DotDE",
- "menu.coming_soon": "coming soon"
+ "menu.coming_soon": "coming soon",
+ "import.missing_packages": "{n} packages are no longer available in the repositories and will be skipped: {names}",
+ "warn.de_not_installed": "{archive} does not seem to be installed on this system.",
+ "reason.conflict": "a folder or file with that name already exists here"
 }

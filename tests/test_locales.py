@@ -9,7 +9,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "dotde"
 DYNAMIC = {
     "pkg.source.native", "pkg.source.aur", "pkg.source.flatpak", "pkg.source.snap",
     "mode.immediate", "mode.deferred", "mode.offline",
-    "reason.forbidden_path", "reason.excluded", "reason.outside_category", "reason.unknown_category", "reason.symlink",
+    "reason.forbidden_path", "reason.excluded", "reason.outside_category", "reason.unknown_category", "reason.symlink", "reason.conflict",
     "pkg.reason_other_distro", "pkg.reason_no_aur_helper", "pkg.reason_missing_tool",
 }
 

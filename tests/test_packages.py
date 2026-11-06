@@ -112,16 +112,16 @@ def test_install_pacman_uses_double_dash():
     assert cmds == [["sudo", "pacman", "-S", "--needed", "--", "firefox", "vim"]]
 
 
-def test_install_snap_classic_one_per_command():
+def test_install_snap_one_per_command():
     pl = PackageList("snap", [Package("code", classic=True), Package("nvim", classic=True), Package("firefox")])
     assert pk.install_commands(pl) == [
-        ["sudo", "snap", "install", "--", "firefox"],
         ["sudo", "snap", "install", "--classic", "--", "code"],
         ["sudo", "snap", "install", "--classic", "--", "nvim"],
+        ["sudo", "snap", "install", "--", "firefox"],
     ]
 
 
-def test_install_flatpak_groups_and_adds_missing_remote():
+def test_install_flatpak_one_per_app_and_adds_missing_remote():
     pl = PackageList(
         "flatpak",
         [Package("org.a.App", "flathub", "system"), Package("org.b.App", "flathub", "user"),
@@ -131,9 +131,37 @@ def test_install_flatpak_groups_and_adds_missing_remote():
     cmds = pk.install_commands(pl, existing_remotes={("user", "flathub")})
     assert cmds == [
         ["flatpak", "remote-add", "--if-not-exists", "--system", "--", "flathub", "https://dl.flathub.org/repo/"],
-        ["flatpak", "install", "--system", "--noninteractive", "--", "flathub", "org.a.App", "org.c.App"],
+        ["flatpak", "install", "--system", "--noninteractive", "--", "flathub", "org.a.App"],
+        ["flatpak", "install", "--system", "--noninteractive", "--", "flathub", "org.c.App"],
         ["flatpak", "install", "--user", "--noninteractive", "--", "flathub", "org.b.App"],
     ]
+
+
+def test_split_available_pacman(monkeypatch):
+    monkeypatch.setattr(pk, "_run", lambda cmd, timeout=120: "firefox\nvim\n" if cmd[:2] == ["pacman", "-Slq"] else "")
+    monkeypatch.setattr(pk, "_ok", lambda cmd, timeout=60: cmd[-1] == "renamed-old")  # provided by another package
+    pl = PackageList("pacman", [Package("firefox"), Package("gone-pkg"), Package("renamed-old"), Package("vim")])
+    ok, missing = pk.split_available(pl)
+    assert [p.name for p in ok.packages] == ["firefox", "renamed-old", "vim"]
+    assert missing == ["gone-pkg"]
+    assert pk.install_commands(ok) == [["sudo", "pacman", "-S", "--needed", "--", "firefox", "renamed-old", "vim"]]
+
+
+def test_split_available_apt_ignores_arch_suffix(monkeypatch):
+    monkeypatch.setattr(pk, "_run", lambda cmd, timeout=120: "libc6:i386\nvim\n")
+    ok, missing = pk.split_available(PackageList("apt", [Package("libc6"), Package("vim"), Package("old")]))
+    assert [p.name for p in ok.packages] == ["libc6", "vim"] and missing == ["old"]
+
+
+def test_split_available_unknown_answer_does_not_filter(monkeypatch):
+    monkeypatch.setattr(pk, "_run", lambda cmd, timeout=120: "")
+    pl = PackageList("dnf", [Package("bash")])
+    assert pk.split_available(pl) == (pl, [])
+
+
+def test_parse_zypper_all():
+    out = "S | Name | Summary | Type\n--+------+---------+-----\n  | vim  | Editor  | package\ni+| bash | Shell   | package\n"
+    assert pk.parse_zypper_all(out) == {"vim", "bash"}
 
 
 def test_install_never_contains_invalid_names():

@@ -33,4 +33,8 @@ def main(argv: list[str] | None = None) -> int:
 
     from dotde.ui import run
 
-    return run()
+    try:
+        return run()
+    except KeyboardInterrupt:  # Ctrl+C outside a flow (e.g. while the header is drawn)
+        print()
+        return 130

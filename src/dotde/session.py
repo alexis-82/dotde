@@ -33,6 +33,19 @@ def is_running(process: str, uid: int | None = None, proc: Path = PROC) -> bool:
     return False
 
 
+def running_de() -> str:
+    """Id of the desktop whose main process runs for this user, or '' (used from a TTY)."""
+    from dotde.profiles import ProfileError, available_profiles, load_profile
+
+    for pid in available_profiles():
+        try:
+            if is_running(load_profile(pid).running_process):
+                return pid
+        except ProfileError:
+            continue
+    return ""
+
+
 def choose_mode(profile: Profile | None, running: bool) -> str:
     """immediate / deferred / offline, following the table in plan.md."""
     if profile is None or not running:

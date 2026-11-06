@@ -110,5 +110,8 @@
  "ui.subtitle": "Backup e ripristino della configurazione del desktop",
  "ui.press_key": "Premi un tasto per tornare al menu…",
  "menu.update": "Aggiorna DotDE",
- "menu.coming_soon": "prossimamente"
+ "menu.coming_soon": "prossimamente",
+ "import.missing_packages": "{n} pacchetti non sono più disponibili nei repository e verranno saltati: {names}",
+ "warn.de_not_installed": "{archive} non sembra installato su questo sistema.",
+ "reason.conflict": "qui esiste già una cartella o un file con quel nome"
 }
