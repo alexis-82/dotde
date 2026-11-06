@@ -138,3 +138,85 @@ def test_ctrl_c_during_an_operation_returns_to_menu(home, monkeypatch, out):
     monkeypatch.setattr(ui, "detect_environment", lambda: Environment(Distro(), "unknown", "", "tty"))
     assert ui.run() == 0
     assert any("Cancelled" in line or "Annullato" in line for line in out)
+
+
+def _run_with_keys(question, keys):
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    with create_pipe_input() as pipe:
+        question.application.input = pipe
+        question.application.output = DummyOutput()
+        pipe.send_text(keys)
+        return question.unsafe_ask()
+
+
+def test_checkbox_back_entry_with_enter():
+    import questionary
+    q = ui.checkbox("pick", [questionary.Choice("a", "a"), questionary.Choice("b", "b")], back=True)
+    assert _run_with_keys(q, "\x1b[B\x1b[B\r") == ui.BACK  # down, down (skips the empty line), enter
+
+
+def test_checkbox_space_on_back_does_nothing_and_enter_on_item_submits():
+    import questionary
+    q = ui.checkbox("pick", [questionary.Choice("a", "a"), questionary.Choice("b", "b")], back=True)
+    # tick "a", go to Back and press space (ignored), go up to "b", submit
+    assert _run_with_keys(q, " \x1b[B\x1b[B \x1b[A\r") == ["a"]
+
+
+def test_select_has_back_after_an_empty_line():
+    import questionary
+    q = ui.select("pick", [questionary.Choice("a", "a")], back=True)
+    control = next(c for c in q.application.layout.find_all_controls() if isinstance(c, ui.InquirerControl))
+    assert isinstance(control.choices[-2], questionary.Separator)
+    assert control.choices[-1].value == ui.BACK
+    assert _run_with_keys(q, "\x1b[B\r") == ui.BACK
+
+
+def test_export_steps_back_keeps_previous_answers(monkeypatch):
+    from types import SimpleNamespace
+    cats = [SimpleNamespace(id="windows", label={"en": "W"}, profile="kde"),
+            SimpleNamespace(id="gtk", label={"en": "G"}, profile="common")]
+    candidates = [SimpleNamespace(name="fish", size=10, sensitive=False)]
+    sources = [("native", "pacman", "Packages (pacman)")]
+    script = Script(["windows"], ui.BACK, ["windows", "gtk"], ["fish"], ui.BACK, ["fish"], ["native"])
+    monkeypatch.setattr(ui, "ask", script)
+    assert ui.choose_export(cats, candidates, sources) == (["windows", "gtk"], ["fish"], ["native"])
+
+    def checked(question):
+        control = next(c for c in question.application.layout.find_all_controls()
+                       if isinstance(c, ui.InquirerControl))
+        return control.selected_options
+
+    assert checked(script.asked[2]) == ["windows"]  # back to step 1: previous ticks kept
+    assert checked(script.asked[5]) == ["fish"]
+
+
+def test_back_on_first_step_returns_to_menu(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(ui, "ask", Script(ui.BACK))
+    with pytest.raises(ui.GoBack):
+        ui.choose_export([SimpleNamespace(id="w", label={"en": "W"}, profile="kde")], [], [])
+
+
+def test_go_back_skips_the_pause(home, monkeypatch, out):
+    def flow(env):
+        raise ui.GoBack
+
+    paused = []
+    monkeypatch.setattr(ui, "flow_export", flow)
+    monkeypatch.setattr(ui, "pause", lambda: paused.append(1))
+    monkeypatch.setattr(ui, "ask", Script("export", ui.Cancelled))
+    monkeypatch.setattr(ui, "detect_environment", lambda: Environment(Distro(), "unknown", "", "tty"))
+    assert ui.run() == 0 and paused == []
+
+
+def test_back_entry_has_no_tick_box():
+    import questionary
+    q = ui.checkbox("pick", [questionary.Choice("a", "a")], back=True)
+    control = next(c for c in q.application.layout.find_all_controls() if isinstance(c, ui.InquirerControl))
+    text = "".join(t[1] for t in control._get_choice_tokens())
+    lines = text.split("\n")
+    assert "○" in lines[0]  # normal item keeps its box
+    back_line = next(line for line in lines if "Indietro" in line or "Back" in line)
+    assert "○" not in back_line and "●" not in back_line

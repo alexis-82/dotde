@@ -109,6 +109,7 @@ STYLE = questionary.Style([
     ("pointer", "fg:#61afef bold"),
     ("highlighted", "fg:#61afef bold"),
     ("selected", "fg:#98c379"),
+    ("back", "fg:#abb2bf"),
     ("answer", "fg:#e5c07b bold"),
     ("instruction", "fg:#5c6370 italic"),
     ("disabled", "fg:#5c6370 italic"),
@@ -138,18 +139,84 @@ def _select_previous(self) -> None:
             return
 
 
+_original_tokens = InquirerControl._get_choice_tokens
+
+
+def _choice_tokens(self):
+    """Like questionary's, but the "Back" entry of a checkbox list gets no tick box."""
+    tokens = []
+    for style, text in _original_tokens(self):
+        if style == "class:back" and tokens and tokens[-1][1].strip() in ("○", "●"):
+            tokens[-1] = ("class:text", " " * len(tokens[-1][1]))  # keep it aligned with the items
+        tokens.append((style, text))
+    return tokens
+
+
 # questionary wraps around at the ends of a list; DotDE stops there instead.
 InquirerControl.select_next = _select_next
 InquirerControl.select_previous = _select_previous
+InquirerControl._get_choice_tokens = _choice_tokens
 BANNER_COLORS = ("#61afef", "#6aa6f0", "#8a8ff0", "#a77ff0", "#c678dd")
 
 
-def select(message, choices, **kw):
+BACK = "__back__"  # answer of the "Back" entry
+
+
+class GoBack(Exception):
+    """The user chose "Back" on the first step of a flow: return to the main menu."""
+
+
+def back_choice() -> questionary.Choice:
+    return questionary.Choice([("class:back", ("← " if FANCY else "< ") + t("ui.back"))], BACK)
+
+
+def with_back(choices: list) -> list:
+    """Every submenu ends with an empty line and the "Back" entry."""
+    return [*choices, questionary.Separator(" "), back_choice()]
+
+
+def select(message, choices, back=False, **kw):
+    if back:
+        choices = with_back(choices)
     return questionary.select(message, choices=choices, style=STYLE, pointer=POINTER, **kw)
 
 
-def checkbox(message, choices, **kw):
-    return questionary.checkbox(message, choices=choices, style=STYLE, pointer=POINTER, **kw)
+def _pad_titles(choices: list) -> list:
+    """Same width for every text title, so the highlighted (checked) rows line up."""
+    width = max((len(c.title) for c in choices if isinstance(c.title, str)), default=0)
+    for c in choices:
+        if isinstance(c.title, str):
+            c.title = c.title.ljust(width)
+    return choices
+
+
+def checkbox(message, choices, back=False, **kw):
+    choices = _pad_titles(list(choices))
+    if back:
+        choices = with_back(choices)
+    kw.setdefault("instruction", "")  # hides questionary's "(Use arrow keys to move, <space> to select, …)"
+    question = questionary.checkbox(message, choices=choices, style=STYLE, pointer=POINTER, **kw)
+    if back:
+        _bind_back(question)
+    return question
+
+
+def _bind_back(question) -> None:
+    """In a checkbox list, Enter on "Back" goes back at once (no need to tick it), space does nothing."""
+    from prompt_toolkit.filters import Condition
+    from prompt_toolkit.keys import Keys
+
+    control = next(c for c in question.application.layout.find_all_controls() if isinstance(c, InquirerControl))
+    on_back = Condition(lambda: control.get_pointed_at().value == BACK)
+    bindings = question.application.key_bindings
+
+    @bindings.add(Keys.ControlM, eager=True, filter=on_back)
+    def _(event):
+        event.app.exit(result=BACK)
+
+    @bindings.add(" ", eager=True, filter=on_back)
+    def _(event):
+        pass
 
 
 def path_question(message, **kw):
@@ -250,6 +317,8 @@ def run() -> int:
         console.print()
         try:
             flows[choice](env)
+        except GoBack:
+            continue  # straight back to the menu, nothing to read
         except (Cancelled, KeyboardInterrupt):
             # Ctrl+C while DotDE is working (not inside a question): files are consistent
             # (atomic writes, backup journal), so it is just a cancellation.
@@ -272,8 +341,55 @@ def pick_profile(env: Environment) -> Profile | None:
     warn(t("export.de_unknown", de=env.de_raw or "?"))
     choices = [questionary.Choice(load_profile(p).name, p) for p in available_profiles()]
     choices.append(questionary.Choice(t("ui.common_only"), ""))
-    pid = ask(select(t("export.pick_profile"), choices))
+    pid = ask(select(t("export.pick_profile"), choices, back=True))
+    if pid == BACK:
+        raise GoBack
     return load_profile(pid) if pid else None
+
+
+def choose_export(cats, candidates, sources) -> tuple[list[str], list[str], list[str]]:
+    """The three selection steps of the export. "Back" returns to the previous step (keeping
+    what was ticked there), or to the main menu from the first one."""
+    suffix = f"  ({t('ui.common')})"
+    answers: dict[int, list[str]] = {
+        0: [c.id for c in cats],                    # categories: all ticked at first
+        1: [],                                      # extra apps: none
+        2: [key for key, _src, _title in sources],  # package lists: all
+    }
+    steps = [0, *([1] if candidates else []), *([2] if sources else [])]
+    i = 0
+    while i < len(steps):
+        step = steps[i]
+        if step == 0:
+            question = checkbox(t("export.categories"), [
+                questionary.Choice(label(c.label) + (suffix if c.profile == "common" else ""), c.id,
+                                   checked=c.id in answers[0])
+                for c in cats
+            ], back=True)
+        elif step == 1:
+            question = checkbox(t("export.extras"), [
+                questionary.Choice(
+                    f"{c.name}  ({fmt_size(c.size)})" + (f"  ⚠ {t('export.sensitive')}" if c.sensitive else ""),
+                    c.name, checked=c.name in answers[1])
+                for c in candidates
+            ], back=True)
+        else:
+            question = checkbox(t("export.packages"), [
+                questionary.Choice(title, key, checked=key in answers[2]) for key, _src, title in sources
+            ], back=True)
+        answer = ask(question)
+        if answer == BACK:
+            if i == 0:
+                raise GoBack
+            i -= 1
+            continue
+        if step == 1:
+            sensitive = [c.name for c in candidates if c.sensitive and c.name in answer]
+            if sensitive and not confirm(t("export.sensitive_confirm", names=", ".join(sensitive)), default=False):
+                answer = [e for e in answer if e not in sensitive]
+        answers[step] = answer
+        i += 1
+    return answers[0], answers[1], answers[2] if sources else []
 
 
 def flow_export(env: Environment) -> None:
@@ -282,27 +398,8 @@ def flow_export(env: Environment) -> None:
     common = load_common()
     cats = combined_categories(profile, common)
 
-    suffix = f"  ({t('ui.common')})"
-    selected_ids = ask(checkbox(t("export.categories"), [
-        questionary.Choice(label(c.label) + (suffix if c.profile == "common" else ""), c.id, checked=True)
-        for c in cats
-    ]))
-    selected = [c for c in cats if c.id in selected_ids]
-
     with console.status(t("export.scanning_extras")):
         candidates = extra_candidates(h, cats, common.exclude, common.secret_patterns, common.sensitive_apps)
-    extras: list[str] = []
-    if candidates:
-        extras = ask(checkbox(t("export.extras"), [
-            questionary.Choice(
-                f"{c.name}  ({fmt_size(c.size)})" + (f"  ⚠ {t('export.sensitive')}" if c.sensitive else ""),
-                c.name, checked=False)
-            for c in candidates
-        ]))
-        sensitive = [c.name for c in candidates if c.sensitive and c.name in extras]
-        if sensitive and not confirm(t("export.sensitive_confirm", names=", ".join(sensitive)), default=False):
-            extras = [e for e in extras if e not in sensitive]
-
     native = NATIVE_BY_FAMILY.get(env.distro.family, "")
     sources = []
     if native and source_available(native):
@@ -312,11 +409,9 @@ def flow_export(env: Environment) -> None:
     for key in ("flatpak", "snap"):
         if source_available(key):
             sources.append((key, key, t(f"pkg.source.{key}")))
-    chosen_sources = []
-    if sources:
-        chosen_sources = ask(checkbox(t("export.packages"), [
-            questionary.Choice(title, key, checked=True) for key, _src, title in sources
-        ]))
+
+    selected_ids, extras, chosen_sources = choose_export(cats, candidates, sources)
+    selected = [c for c in cats if c.id in selected_ids]
 
     extra_cats = [extra_category(e) for e in extras]
     dconf_dumps: list[DconfDump] = []
@@ -393,7 +488,9 @@ def pick_archive(h: Path) -> Path:
     if found:
         choices = [questionary.Choice(str(p), str(p)) for p in found[:10]]
         choices.append(questionary.Choice(t("import.other_path"), ""))
-        picked = ask(select(t("import.pick_archive"), choices))
+        picked = ask(select(t("import.pick_archive"), choices, back=True))
+        if picked == BACK:
+            raise GoBack
         if picked:
             return Path(picked)
     raw = ask(path_question(t("import.archive_path"), default=str(h) + "/"))
@@ -507,11 +604,14 @@ def _import_opened(opened, env: Environment, h: Path) -> None:
     cats = [c for c in restore.archive_categories(manifest, profile, common) if c.id in present]
     selected: set[str] = set()
     if cats:
-        selected = set(ask(checkbox(t("import.categories"), [
+        answer = ask(checkbox(t("import.categories"), [
             questionary.Choice(label(c.label) + (f"  ({t('export.extra')})" if c.id.startswith(EXTRA_PREFIX) else ""),
                                c.id, checked=True)
             for c in cats
-        ])))
+        ], back=True))
+        if answer == BACK:
+            raise GoBack
+        selected = set(answer)
 
     handle_packages(opened, env)  # D14: packages before configuration files
 
