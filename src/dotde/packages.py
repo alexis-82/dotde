@@ -183,17 +183,24 @@ def list_installed(source: str) -> PackageList:
 
 
 def _validated(pl: PackageList) -> PackageList:
-    good, bad = [], list(pl.invalid)
+    """Keep valid packages and remotes; the names of the invalid ones go to `.invalid`."""
+    good: list[Package] = []
+    remotes: list[Remote] = []
+    invalid = list(pl.invalid)
     for p in pl.packages:
         ok = valid_name(pl.source, p.name)
         if pl.source == "flatpak":
             ok = ok and valid_remote(p.remote) and p.installation in INSTALLATIONS
-        (good if ok else bad).append(p if ok else p.name)
-    remotes, bad_r = [], []
+        if ok:
+            good.append(p)
+        else:
+            invalid.append(p.name)
     for r in pl.remotes:
-        ok = valid_remote(r.name) and valid_url(r.url) and r.installation in INSTALLATIONS
-        (remotes if ok else bad_r).append(r if ok else r.name)
-    return PackageList(pl.source, good, remotes, bad + bad_r)
+        if valid_remote(r.name) and valid_url(r.url) and r.installation in INSTALLATIONS:
+            remotes.append(r)
+        else:
+            invalid.append(r.name)
+    return PackageList(pl.source, good, remotes, invalid)
 
 
 # --- archive serialisation ---------------------------------------------------------------------

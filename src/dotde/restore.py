@@ -480,7 +480,11 @@ def restore_symlink(home: Path, rel: str, target: str) -> None:
     """Put back a symbolic link that an import had replaced with a regular file."""
     check_rel(rel)
     path = home / rel
-    resolve_inside(home, str(Path(rel).parent) + "/x")  # the folder holding the link stays inside its root
+    # The folder that will hold the link must not lead outside its root through another link
+    root_real = (home / Path(rel).parts[0]).resolve()
+    folder_real = path.parent.resolve()
+    if folder_real != root_real and root_real not in folder_real.parents:
+        raise PathError(f"folder escapes {Path(rel).parts[0]} through a symlink: {rel}")
     if path.is_symlink() or path.exists():
         path.unlink()
     path.parent.mkdir(parents=True, exist_ok=True)

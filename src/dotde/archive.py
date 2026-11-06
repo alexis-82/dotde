@@ -15,6 +15,7 @@ import re
 import shutil
 import socket
 import tarfile
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -95,6 +96,13 @@ def write_archive(
     tmp = target.with_name(target.name + ".part")
     total = len(collection.files) + len(dconf_dumps) + len(package_lists)
     done = 0
+
+    def tick() -> None:
+        nonlocal done
+        done += 1
+        if progress:
+            progress(done, total)
+
     manifest: dict = {
         "format": FORMAT,
         "dotde_version": __version__,
@@ -118,9 +126,7 @@ def write_archive(
                 manifest["files"].append(
                     {"path": f.rel, "category": f.category, "size": len(data), "mode": f.mode, "sha256": _sha256(data)}
                 )
-                done += 1
-                if progress:
-                    progress(done, total)
+                tick()
             counters: dict[str, int] = {}
             for d in dconf_dumps:
                 n = counters[d.category] = counters.get(d.category, 0) + 1
@@ -128,9 +134,7 @@ def write_archive(
                 data = d.data.encode()
                 _add_bytes(tar, name, data)
                 manifest["dconf"].append({"category": d.category, "path": d.path, "file": name, "sha256": _sha256(data)})
-                done += 1
-                if progress:
-                    progress(done, total)
+                tick()
             for key, pl in package_lists.items():
                 name = f"packages/{ARCHIVE_FILES[key]}"
                 data = serialize(pl).encode()
@@ -142,9 +146,7 @@ def write_archive(
                     _add_bytes(tar, rname, rdata)
                     entry["remotes_file"], entry["remotes_sha256"] = rname, _sha256(rdata)
                 manifest["packages"][key] = entry
-                done += 1
-                if progress:
-                    progress(done, total)
+                tick()
             _add_bytes(tar, MANIFEST, json.dumps(manifest, indent=2, ensure_ascii=False).encode())
         os.replace(tmp, target)
     except BaseException:
@@ -275,7 +277,7 @@ def read_archive(path: Path, workroot: Path) -> OpenedArchive:
         if free_space(workroot) < needed:
             raise ArchiveError(f"not enough free space to extract the archive ({needed // (1024 * 1024)} MB needed)")
 
-        workdir = Path(_mkdtemp(workroot))
+        workdir = Path(tempfile.mkdtemp(prefix="import-", dir=workroot))
         try:
             for m in members:
                 dest = workdir / m.name
@@ -301,12 +303,6 @@ def read_archive(path: Path, workroot: Path) -> OpenedArchive:
             shutil.rmtree(workdir, ignore_errors=True)
             raise
     return OpenedArchive(path, workdir, manifest)
-
-
-def _mkdtemp(root: Path) -> str:
-    import tempfile
-
-    return tempfile.mkdtemp(prefix="import-", dir=root)
 
 
 def _verify_hashes(workdir: Path, manifest: dict, names: set[str]) -> None:
