@@ -1,0 +1,61 @@
+# Categories shared by every desktop environment, global exclusions, and apps known to
+# keep secrets in ~/.config.
+
+# Never exported, never restored. "~/..." is anchored to the home, "**/name" matches any
+# path component, a trailing "/" means "directory".
+exclude = [
+    "~/.local/share/Trash/",
+    "~/.local/share/keyrings/",
+    "~/.local/share/kwalletd/",
+    "~/.local/share/recently-used.xbel",
+    "~/.local/share/flatpak/",
+    "~/.local/share/Steam/",
+    "~/.local/share/containers/",
+    "~/.config/dconf/",
+    "**/*[Cc]ache*/",
+    "**/thumbnails/",
+    "**/*.tbcache",
+    "**/globalStorage/",
+    "**/*.dotde-tmp",
+]
+
+# Files holding keys or tokens: never exported, and a folder containing one is flagged as
+# sensitive when offered as an "extra app".
+secret_patterns = ["**/*.pem", "**/*private*key*", "**/hosts.yml", "**/auth.json", "**/Cookies*"]
+
+# Folders of ~/.config that hold tokens, keys or browser profiles: shown with a warning
+# when offered as "extra apps".
+sensitive_apps = [
+    "gh", "kdeconnect", "rclone", "containers", "keepassxc", "Bitwarden", "Signal",
+    "BraveSoftware", "chromium", "google-chrome", "vivaldi", "opera", "microsoft-edge",
+    "discord", "Slack", "Element", "evolution", "gnome-online-accounts",
+]
+
+[meta]
+id = "common"
+name = "Common"
+
+[[category]]
+id = "gtk"
+label = { en = "GTK settings", it = "Impostazioni GTK" }
+paths = ["~/.config/gtk-3.0/", "~/.config/gtk-4.0/", "~/.config/gtkrc", "~/.config/gtkrc-2.0"]
+
+[[category]]
+id = "themes-icons"
+label = { en = "User themes and icons", it = "Temi e icone utente" }
+paths = ["~/.themes/", "~/.icons/", "~/.local/share/themes/", "~/.local/share/icons/"]
+
+[[category]]
+id = "fonts"
+label = { en = "User fonts", it = "Font utente" }
+paths = ["~/.local/share/fonts/", "~/.config/fontconfig/"]
+
+[[category]]
+id = "autostart"
+label = { en = "Autostart applications", it = "Applicazioni all'avvio" }
+paths = ["~/.config/autostart/"]
+
+[[category]]
+id = "default-apps"
+label = { en = "Default applications and user folders", it = "Applicazioni predefinite e cartelle utente" }
+paths = ["~/.config/mimeapps.list", "~/.config/user-dirs.dirs", "~/.config/user-dirs.locale"]

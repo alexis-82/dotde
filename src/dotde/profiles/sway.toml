@@ -1,0 +1,28 @@
+[meta]
+id = "sway"
+name = "Sway"
+version_cmd = ["sway", "--version"]
+running_process = "sway"
+# The compositor does not rewrite its configuration: restoring in a running session is safe.
+restore_mode = "immediate"
+logout_cmd = ["swaymsg", "exit"]
+
+[[category]]
+id = "compositor"
+label = { en = "Compositor configuration", it = "Configurazione del compositor" }
+paths = ["~/.config/sway/", "~/.config/swaylock/", "~/.config/swayidle/"]
+
+[[category]]
+id = "bar"
+label = { en = "Status bar (Waybar)", it = "Barra di stato (Waybar)" }
+paths = ["~/.config/waybar/"]
+
+[[category]]
+id = "launcher"
+label = { en = "Application launcher (rofi, wofi, fuzzel)", it = "Launcher applicazioni (rofi, wofi, fuzzel)" }
+paths = ["~/.config/rofi/", "~/.config/wofi/", "~/.config/fuzzel/"]
+
+[[category]]
+id = "notifications"
+label = { en = "Notifications (mako, dunst, swaync)", it = "Notifiche (mako, dunst, swaync)" }
+paths = ["~/.config/mako/", "~/.config/dunst/", "~/.config/swaync/"]

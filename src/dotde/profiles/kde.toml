@@ -1,0 +1,63 @@
+# Every path is optional: KDE creates many of these files only after the matching setting
+# is changed, and missing paths are simply skipped.
+
+[meta]
+id = "kde"
+name = "KDE Plasma"
+version_cmd = ["plasmashell", "--version"]
+running_process = "plasmashell"
+# Plasma saves its in-memory state at logout: with a running session the restore is
+# applied at the next login, before Plasma starts.
+restore_mode = "deferred"
+logout_cmd = ["qdbus6", "org.kde.Shutdown", "/Shutdown", "logout"]
+
+[[category]]
+id = "appearance"
+label = { en = "Appearance (colours, fonts, theme)", it = "Aspetto (colori, font, tema)" }
+paths = [
+    "~/.config/kdeglobals", "~/.config/plasmarc", "~/.config/ksplashrc", "~/.config/kdedefaults/",
+    "~/.local/share/color-schemes/", "~/.local/share/aurorae/",
+]
+
+[[category]]
+id = "panels"
+label = { en = "Panels, widgets and desktop", it = "Pannelli, widget e desktop" }
+paths = [
+    "~/.config/plasma-org.kde.plasma.desktop-appletsrc", "~/.config/plasmashellrc",
+    "~/.local/share/plasma/",
+]
+
+[[category]]
+id = "windows"
+label = { en = "Window manager (KWin)", it = "Gestione finestre (KWin)" }
+paths = ["~/.config/kwinrc", "~/.config/kwinrulesrc", "~/.local/share/kwin/"]
+
+[[category]]
+id = "shortcuts"
+label = { en = "Keyboard shortcuts", it = "Scorciatoie da tastiera" }
+paths = ["~/.config/kglobalshortcutsrc", "~/.config/khotkeysrc"]
+
+[[category]]
+id = "input"
+label = { en = "Mouse, touchpad and keyboard layout", it = "Mouse, touchpad e layout tastiera" }
+paths = ["~/.config/kcminputrc", "~/.config/kxkbrc", "~/.config/touchpadxlibinputrc", "~/.config/kaccessrc"]
+
+[[category]]
+id = "system"
+label = { en = "Notifications, power, locale and search", it = "Notifiche, energia, lingua e ricerca" }
+paths = [
+    "~/.config/plasmanotifyrc", "~/.config/powerdevilrc", "~/.config/powermanagementprofilesrc",
+    "~/.config/plasma-localerc", "~/.config/ksmserverrc", "~/.config/kscreenlockerrc",
+    "~/.config/baloofilerc", "~/.config/krunnerrc",
+]
+
+[[category]]
+id = "apps"
+label = { en = "KDE applications (Dolphin, Konsole, Kate, …)", it = "Applicazioni KDE (Dolphin, Konsole, Kate, …)" }
+paths = [
+    "~/.config/dolphinrc", "~/.config/konsolerc", "~/.config/katerc", "~/.config/kate/",
+    "~/.config/kwriterc", "~/.config/okularrc", "~/.config/okularpartrc", "~/.config/gwenviewrc",
+    "~/.config/spectaclerc", "~/.config/arkrc", "~/.config/kservicemenurc",
+    "~/.local/share/konsole/", "~/.local/share/kxmlgui5/", "~/.local/share/dolphin/",
+    "~/.local/share/user-places.xbel",
+]

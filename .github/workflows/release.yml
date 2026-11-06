@@ -1,0 +1,188 @@
+# Release di DotDE: parte quando si pubblica un tag vX.Y.Z.
+#   test (CI) + build (wheel + sdist) -> installazione su più distro (in parallelo) -> GitHub Release
+# Su una pull request che modifica questo file esegue build e installazione,
+# senza pubblicare nulla.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # 1. Stessi controlli della CI: niente release se un test fallisce
+  test:
+    name: Test
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/ci.yml
+
+  # 2. Wheel e sdist, con il tag che deve coincidere con il file version
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Un tag come v1.1.0-rc verrebbe pubblicato come release stabile:
+      # solo vX.Y.Z, uguale alla versione nel file version
+      - name: Read the version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < version)"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::versione '$version' non valida nel file version: atteso X.Y.Z"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Il tag $GITHUB_REF_NAME non corrisponde alla versione $version nel file version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+
+      - name: Build
+        run: |
+          python -m pip install build
+          python -m build
+          cd dist
+          ls -l
+
+      - name: Upload packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages
+          path: dist/
+          if-no-files-found: error
+
+  # 3. Installa davvero il wheel su ogni famiglia di distro supportata.
+  #    Debian 12 ha Python 3.11.2: il minimo reale (tarfile senza filter="data").
+  smoke:
+    name: Install on ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 12
+            image: debian:12
+            setup: apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates
+          - name: Debian
+            image: debian:stable
+            setup: apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates
+          - name: Ubuntu
+            image: ubuntu:latest
+            setup: apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates
+          - name: Fedora
+            image: fedora:latest
+            setup: dnf install -y python3
+          - name: openSUSE
+            image: opensuse/tumbleweed:latest
+            setup: zypper --non-interactive install python3 python3-pip
+          - name: Arch Linux
+            image: archlinux:latest
+            setup: pacman -Syu --noconfirm python
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: dist
+
+      - name: Install Python
+        shell: sh
+        env:
+          SETUP_COMMAND: ${{ matrix.setup }}
+        run: sh -ec "$SETUP_COMMAND"
+
+      - name: Install DotDE
+        shell: sh
+        run: |
+          set -e
+          python3 -m venv /opt/dotde
+          /opt/dotde/bin/pip install dist/*.whl
+
+      # Versione, profili e traduzioni presi dal pacchetto installato (non dai
+      # sorgenti), e il comando interno del ripristino differito a vuoto
+      - name: Check the installed program
+        shell: sh
+        env:
+          EXPECTED_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -e
+          cd /
+          test "$(/opt/dotde/bin/dotde --version)" = "dotde $EXPECTED_VERSION"
+          /opt/dotde/bin/python - <<'PY'
+          from dotde.i18n import t
+          from dotde.profiles import available_profiles, combined_categories, load_common, load_profile
+          common = load_common()
+          ids = available_profiles()
+          assert set(ids) == {"kde", "gnome", "xfce", "hyprland", "sway"}, ids
+          for pid in ids:
+              combined_categories(load_profile(pid), common)
+          assert t("menu.export", lang="it") != "menu.export"
+          print("profiles:", ", ".join(ids))
+          PY
+          HOME="$(mktemp -d)" /opt/dotde/bin/dotde --apply-pending
+
+  # 4. Raccoglie i file, calcola i checksum e pubblica la release
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write  # serve per creare la release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # storia completa e tag, per le note di rilascio
+          persist-credentials: false
+
+      - name: Download packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: dist
+
+      - name: Checksum SHA-256
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt
+
+      # Note = elenco dei commit dal tag precedente
+      - name: Note di rilascio
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          range=${prev:+$prev..}$GITHUB_REF_NAME
+          { echo "## Novità"; echo; git log --no-merges --pretty='- %s' "$range"; } > notes.md
+          cat notes.md
+
+      - name: Crea la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "DotDE $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --verify-tag

@@ -1,0 +1,79 @@
+# CI di DotDE: a ogni push su main e a ogni pull request esegue i test su
+# Python 3.11 (minimo supportato) e 3.14, e verifica che il pacchetto si
+# costruisca con profili e traduzioni dentro. Riutilizzata dalla release.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Un nuovo push sullo stesso branch annulla la run precedente ancora in corso
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # La versione minima supportata e la più recente provata
+        python-version: ["3.11", "3.14"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: python -m pip install -e ".[test]"
+
+      # I test lavorano su una home finta (tmp_path): non toccano il runner
+      - name: Run tests
+        run: python -m pytest -v
+
+  build:
+    name: Build (wheel + sdist)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+
+      - name: Build
+        run: |
+          python -m pip install build
+          python -m build
+
+      # Senza i file TOML e JSON il programma installato non parte: meglio
+      # accorgersene a ogni push che alla release
+      - name: Check package contents
+        run: |
+          python -m zipfile -l dist/*.whl > /tmp/wheel.txt
+          for f in common kde gnome xfce hyprland sway; do
+            grep -q "dotde/profiles/$f.toml" /tmp/wheel.txt
+          done
+          grep -q "dotde/locales/en.json" /tmp/wheel.txt
+          grep -q "dotde/locales/it.json" /tmp/wheel.txt
+          tar -tzf dist/*.tar.gz | grep -q "/version$"

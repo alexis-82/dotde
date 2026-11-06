@@ -1,0 +1,50 @@
+[meta]
+id = "gnome"
+name = "GNOME"
+version_cmd = ["gnome-shell", "--version"]
+running_process = "gnome-shell"
+# dconf applies changes live: restoring inside a running session is safe.
+restore_mode = "immediate"
+logout_cmd = ["gnome-session-quit", "--logout", "--no-prompt"]
+
+[[category]]
+id = "appearance"
+label = { en = "Appearance (theme, fonts, wallpaper)", it = "Aspetto (tema, font, sfondo)" }
+dconf = [
+    "/org/gnome/desktop/interface/", "/org/gnome/desktop/background/",
+    "/org/gnome/desktop/screensaver/", "/org/gnome/desktop/wm/preferences/",
+]
+
+[[category]]
+id = "shell"
+label = { en = "Shell, dock and extensions", it = "Shell, dock ed estensioni" }
+dconf = ["/org/gnome/shell/"]
+paths = ["~/.local/share/gnome-shell/extensions/"]
+
+[[category]]
+id = "windows"
+label = { en = "Window manager (Mutter)", it = "Gestione finestre (Mutter)" }
+dconf = ["/org/gnome/mutter/"]
+
+[[category]]
+id = "shortcuts"
+label = { en = "Keyboard shortcuts", it = "Scorciatoie da tastiera" }
+dconf = ["/org/gnome/desktop/wm/keybindings/", "/org/gnome/settings-daemon/plugins/media-keys/"]
+
+[[category]]
+id = "input"
+label = { en = "Mouse, touchpad and keyboard layout", it = "Mouse, touchpad e layout tastiera" }
+dconf = ["/org/gnome/desktop/peripherals/", "/org/gnome/desktop/input-sources/"]
+
+[[category]]
+id = "system"
+label = { en = "Notifications, power and session", it = "Notifiche, energia e sessione" }
+dconf = [
+    "/org/gnome/desktop/notifications/", "/org/gnome/desktop/session/",
+    "/org/gnome/settings-daemon/plugins/power/", "/org/gnome/desktop/privacy/",
+]
+
+[[category]]
+id = "apps"
+label = { en = "GNOME applications (Files, Terminal, Text Editor)", it = "Applicazioni GNOME (File, Terminale, Editor di testo)" }
+dconf = ["/org/gnome/nautilus/", "/org/gnome/terminal/", "/org/gnome/Console/", "/org/gnome/TextEditor/"]

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dotde"
+dynamic = ["version"]
+description = "Export and import Linux desktop environment configurations"
+readme = { text = "Export and import Linux desktop environment configurations.", content-type = "text/plain" }
+requires-python = ">=3.11"
+dependencies = ["questionary>=2.0", "rich>=13.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+dotde = "dotde.cli:main"
+
+[tool.setuptools.dynamic]
+version = { file = "version" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+dotde = ["profiles/*.toml", "locales/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
