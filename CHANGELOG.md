@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-07
+
+### Added
+- A "Back" entry at the end of every list: during the export it returns to the previous step and keeps your choices, elsewhere it returns to the main menu.
+
+### Changed
+- Lists show a box next to each item: `[x]` for the items that are included, `[ ]` for the others, instead of coloured dots. The English instructions under the lists are gone.
+
 ## [1.0.0] - 2026-11-06
 
 ### Added

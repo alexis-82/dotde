@@ -217,6 +217,14 @@ def test_back_entry_has_no_tick_box():
     control = next(c for c in q.application.layout.find_all_controls() if isinstance(c, ui.InquirerControl))
     text = "".join(t[1] for t in control._get_choice_tokens())
     lines = text.split("\n")
-    assert "○" in lines[0]  # normal item keeps its box
+    assert "[ ]" in lines[0]  # normal item keeps its box
     back_line = next(line for line in lines if "Indietro" in line or "Back" in line)
-    assert "○" not in back_line and "●" not in back_line
+    assert "[ ]" not in back_line and "[x]" not in back_line
+
+
+def test_ticked_items_show_a_box_not_a_colour():
+    import questionary
+    q = ui.checkbox("pick", [questionary.Choice("a", "a", checked=True), questionary.Choice("b", "b")])
+    control = next(c for c in q.application.layout.find_all_controls() if isinstance(c, ui.InquirerControl))
+    lines = "".join(t[1] for t in control._get_choice_tokens()).split("\n")
+    assert "[x] a" in lines[0] and "[ ] b" in lines[1]

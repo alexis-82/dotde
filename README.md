@@ -5,7 +5,7 @@
 **Save your Linux desktop settings and get them back after reinstalling the system**<br>
 *Salva le impostazioni del tuo desktop Linux e ritrovale dopo aver reinstallato il sistema*
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=plastic)](CHANGELOG.md)&nbsp;&nbsp;&nbsp;[![Python](https://img.shields.io/badge/Python-3776AB?style=plastic&logo=python&logoColor=white)](#)&nbsp;&nbsp;&nbsp;[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=plastic)](#)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=plastic)](CHANGELOG.md)&nbsp;&nbsp;&nbsp;[![Python](https://img.shields.io/badge/Python-3776AB?style=plastic&logo=python&logoColor=white)](#)&nbsp;&nbsp;&nbsp;[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=plastic)](#)
 
 🇬🇧 [English](#en)&nbsp;&nbsp;·&nbsp;&nbsp;🇮🇹 [Italiano](#it)
 
@@ -67,7 +67,7 @@ You need Linux with Python 3.11 or newer, which recent distributions already inc
 <a id="how-to-use"></a>
 ## 🧭 How to use
 
-Open the Terminal and type `dotde`. A menu appears: move with the arrow keys and press Enter to choose.
+Open the Terminal and type `dotde`. A menu appears: move with the arrow keys and press Enter to choose. In the lists with boxes, press Space to add or remove the `[x]`: only the items with `[x]` are used. Choose **← Back** at the end of a list to go back.
 
 **Before formatting**
 
@@ -155,7 +155,7 @@ Ti serve Linux con Python 3.11 o più recente, già presente nelle distribuzioni
 <a id="come-si-usa"></a>
 ## 🧭 Come si usa
 
-Apri il Terminale e scrivi `dotde`. Compare un menu: ti muovi con le frecce e premi Invio per scegliere.
+Apri il Terminale e scrivi `dotde`. Compare un menu: ti muovi con le frecce e premi Invio per scegliere. Negli elenchi con le caselle premi Spazio per mettere o togliere la `[x]`: vengono usate solo le voci con la `[x]`. Scegli **← Indietro** in fondo a un elenco per tornare indietro.
 
 **Prima di formattare**
 

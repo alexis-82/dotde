@@ -7,6 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import questionary
+from questionary.prompts import common as questionary_common
 from questionary.prompts.common import InquirerControl
 from rich import box
 from rich.console import Console, Group
@@ -108,7 +109,7 @@ STYLE = questionary.Style([
     ("question", "bold"),
     ("pointer", "fg:#61afef bold"),
     ("highlighted", "fg:#61afef bold"),
-    ("selected", "fg:#98c379"),
+    ("selected", "noreverse"),  # ticked items are shown by their [x] box, not by colour
     ("back", "fg:#abb2bf"),
     ("answer", "fg:#e5c07b bold"),
     ("instruction", "fg:#5c6370 italic"),
@@ -139,6 +140,11 @@ def _select_previous(self) -> None:
             return
 
 
+# Tick boxes instead of questionary's ● / ○ (ASCII: visible in the Linux text console too)
+TICKED, UNTICKED = "[x]", "[ ]"
+questionary_common.INDICATOR_SELECTED = TICKED
+questionary_common.INDICATOR_UNSELECTED = UNTICKED
+
 _original_tokens = InquirerControl._get_choice_tokens
 
 
@@ -146,7 +152,7 @@ def _choice_tokens(self):
     """Like questionary's, but the "Back" entry of a checkbox list gets no tick box."""
     tokens = []
     for style, text in _original_tokens(self):
-        if style == "class:back" and tokens and tokens[-1][1].strip() in ("○", "●"):
+        if style == "class:back" and tokens and tokens[-1][1].strip() in (TICKED, UNTICKED):
             tokens[-1] = ("class:text", " " * len(tokens[-1][1]))  # keep it aligned with the items
         tokens.append((style, text))
     return tokens
