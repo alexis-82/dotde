@@ -36,19 +36,26 @@ jobs:
         with:
           persist-credentials: false
 
-      # Un tag come v1.1.0-rc verrebbe pubblicato come release stabile:
-      # solo vX.Y.Z, uguale alla versione nel file version
+      # La versione viene dal tag, come in zenith: basta creare il tag vX.Y.Z,
+      # senza aggiornare nulla a mano. Solo vX.Y.Z (un v1.1.0-rc verrebbe
+      # pubblicato come release stabile) e con la sua voce nel CHANGELOG.
       - name: Read the version
         id: version
         run: |
-          version="$(tr -d '[:space:]' < version)"
-          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::versione '$version' non valida nel file version: atteso X.Y.Z"
-            exit 1
-          fi
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Il tag $GITHUB_REF_NAME non corrisponde alla versione $version nel file version"
-            exit 1
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::tag $GITHUB_REF_NAME non valido: atteso vX.Y.Z"
+              exit 1
+            fi
+            version="${GITHUB_REF_NAME#v}"
+            if ! grep -Fq "## [$version]" CHANGELOG.md; then
+              echo "::error::Nel CHANGELOG manca la voce ## [$version]"
+              exit 1
+            fi
+            # Il pacchetto legge la versione da questo file
+            printf '%s\n' "$version" > version
+          else
+            version="$(tr -d '[:space:]' < version)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
